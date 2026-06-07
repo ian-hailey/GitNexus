@@ -30,6 +30,7 @@ import type {
   MiniMaxConfig,
   GLMConfig,
   DeepSeekConfig,
+  VLLMConfig,
   AgentStreamChunk,
   AgentHistoryMessage,
 } from './types';
@@ -318,6 +319,21 @@ export const createChatModel = (config: ProviderConfig): BaseChatModel => {
         configuration: {
           apiKey: deepseekConfig.apiKey,
           baseURL: 'https://api.deepseek.com',
+        },
+        streaming: true,
+      });
+    }
+
+    case 'vllm': {
+      const vllmConfig = config as VLLMConfig;
+      return new ChatOpenAI({
+        apiKey: vllmConfig.apiKey || 'EMPTY',
+        modelName: vllmConfig.model,
+        temperature: vllmConfig.temperature ?? 0.1,
+        maxTokens: vllmConfig.maxTokens,
+        configuration: {
+          apiKey: vllmConfig.apiKey || 'EMPTY',
+          baseURL: vllmConfig.baseUrl ?? 'http://localhost:8000/v1',
         },
         streaming: true,
       });

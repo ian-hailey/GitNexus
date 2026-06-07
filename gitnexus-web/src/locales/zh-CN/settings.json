@@ -70,6 +70,11 @@
     },
     "glm": {
       "apiKeyPlaceholder": "输入 Z.AI API Key"
+    },
+    "vllm": {
+      "baseUrlHint": "默认为 http://localhost:8000/v1，包含 /v1 chat/completions 路径。",
+      "apiKeyPlaceholder": "如无认证需求可留空",
+      "authNote": "vLLM 可在本地开发时无需身份验证运行。"
     }
   },
   "loadingModels": "正在加载模型...",

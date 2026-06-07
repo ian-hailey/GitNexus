@@ -2,7 +2,7 @@
  * LLM Provider Types
  *
  * Type definitions for multi-provider LLM support.
- * Supports OpenAI, Azure OpenAI, Gemini, Anthropic, Ollama, OpenRouter, MiniMax, GLM, and DeepSeek.
+ * Supports OpenAI, Azure OpenAI, Gemini, Anthropic, Ollama, OpenRouter, MiniMax, GLM, DeepSeek, and vLLM.
  */
 
 /**
@@ -18,7 +18,8 @@ export type LLMProvider =
   | 'openrouter'
   | 'minimax'
   | 'glm'
-  | 'deepseek';
+  | 'deepseek'
+  | 'vllm';
 
 /**
  * Base configuration shared by all providers
@@ -117,6 +118,16 @@ export interface DeepSeekConfig extends BaseProviderConfig {
 }
 
 /**
+ * vLLM configuration — OpenAI-compatible API for self-hosted inference
+ */
+export interface VLLMConfig extends BaseProviderConfig {
+  provider: 'vllm';
+  apiKey?: string; // optional, vLLM can run without auth
+  model: string; // e.g., 'meta-llama/Llama-3.3-70B-Instruct', 'Qwen/Qwen2.5-72B-Instruct'
+  baseUrl?: string; // defaults to http://localhost:8000/v1
+}
+
+/**
  * Union type for all provider configurations
  */
 export type ProviderConfig =
@@ -128,7 +139,8 @@ export type ProviderConfig =
   | OpenRouterConfig
   | MiniMaxConfig
   | GLMConfig
-  | DeepSeekConfig;
+  | DeepSeekConfig
+  | VLLMConfig;
 
 /**
  * Stored settings (what goes to localStorage)
@@ -148,6 +160,7 @@ export interface LLMSettings {
   minimax?: Partial<Omit<MiniMaxConfig, 'provider'>>;
   glm?: Partial<Omit<GLMConfig, 'provider'>>;
   deepseek?: Partial<Omit<DeepSeekConfig, 'provider'>>;
+  vllm?: Partial<Omit<VLLMConfig, 'provider'>>;
 
   // Intelligent Clustering Settings
   intelligentClustering: boolean;
@@ -212,6 +225,12 @@ export const DEFAULT_LLM_SETTINGS: LLMSettings = {
   deepseek: {
     apiKey: '',
     model: 'deepseek-v4-flash',
+    temperature: 0.1,
+  },
+  vllm: {
+    apiKey: '',
+    model: '',
+    baseUrl: 'http://localhost:8000/v1',
     temperature: 0.1,
   },
 };

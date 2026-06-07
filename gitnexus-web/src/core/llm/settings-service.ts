@@ -18,6 +18,7 @@ import {
   MiniMaxConfig,
   GLMConfig,
   DeepSeekConfig,
+  VLLMConfig,
   ProviderConfig,
 } from './types';
 import { DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OLLAMA_BASE_URL } from '../../config/ui-constants';
@@ -63,6 +64,10 @@ const mergeWithDefaults = (parsed?: Partial<LLMSettings> | null): LLMSettings =>
   deepseek: {
     ...DEFAULT_LLM_SETTINGS.deepseek,
     ...parsed?.deepseek,
+  },
+  vllm: {
+    ...DEFAULT_LLM_SETTINGS.vllm,
+    ...parsed?.vllm,
   },
 });
 
@@ -338,6 +343,15 @@ const providerBuilders: Record<LLMProvider, ProviderBuilder> = {
     if (!settings.deepseek?.apiKey) return null;
     return { provider: 'deepseek', ...settings.deepseek } as DeepSeekConfig;
   },
+  vllm: (settings) => {
+    // vLLM doesn't require an API key (can run without auth), but model is required
+    if (!settings.vllm?.model) return null;
+    return {
+      provider: 'vllm',
+      ...settings.vllm,
+      baseUrl: settings.vllm?.baseUrl || 'http://localhost:8000/v1',
+    } as VLLMConfig;
+  },
 };
 
 export const getActiveProviderConfig = (): ProviderConfig | null => {
@@ -410,6 +424,8 @@ export const getProviderDisplayName = (provider: LLMProvider): string => {
       return 'GLM (Z.AI)';
     case 'deepseek':
       return 'DeepSeek';
+    case 'vllm':
+      return 'vLLM (Local)';
     default:
       return provider;
   }
@@ -417,6 +433,9 @@ export const getProviderDisplayName = (provider: LLMProvider): string => {
 
 /**
  * Get available models for a provider
+ *
+ * Note: OpenRouter and vLLM are excluded — they dynamically fetch models at runtime
+ * via fetchOpenRouterModels() and fetchVLLMModels() respectively.
  */
 export const getAvailableModels = (provider: LLMProvider): string[] => {
   switch (provider) {
@@ -444,6 +463,27 @@ export const getAvailableModels = (provider: LLMProvider): string[] => {
       return ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner'];
     default:
       return [];
+  }
+};
+
+/**
+ * Fetch available models from a vLLM server
+ */
+export const fetchVLLMModels = async (baseUrl: string): Promise<Array<{ id: string; name: string }>> => {
+  try {
+    const response = await resilientFetch(`${baseUrl}/models`, undefined, {
+      breakerKey: 'vllm-models',
+      retry: { maxAttempts: 2, baseDelayMs: 500, capDelayMs: 2_000 },
+    });
+    if (!response.ok) throw new Error('Failed to fetch models');
+    const data = await response.json();
+    return (data.data ?? []).map((model: any) => ({
+      id: model.id,
+      name: model.id,
+    }));
+  } catch (error) {
+    console.error('Error fetching vLLM models:', error);
+    return [];
   }
 };
 

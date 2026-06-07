@@ -19,6 +19,7 @@ import {
   getProviderDisplayName,
   getAvailableModels,
   fetchOpenRouterModels,
+  fetchVLLMModels,
 } from '../core/llm/settings-service';
 import type { LLMSettings, LLMProvider } from '../core/llm/types';
 import { DEFAULT_OLLAMA_BASE_URL } from '../config/ui-constants';
@@ -261,6 +262,9 @@ export const SettingsPanel = ({
   // OpenRouter models state
   const [openRouterModels, setOpenRouterModels] = useState<Array<{ id: string; name: string }>>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  // vLLM models state
+  const [vllmModels, setVllmModels] = useState<Array<{ id: string; name: string }>>([]);
+  const [isLoadingVllmModels, setIsLoadingVllmModels] = useState(false);
 
   // Clean up save timer on unmount
   useEffect(() => {
@@ -296,6 +300,14 @@ export const SettingsPanel = ({
     const models = await fetchOpenRouterModels();
     setOpenRouterModels(models);
     setIsLoadingModels(false);
+  }, []);
+
+  // Load vLLM models
+  const loadVllmModels = useCallback(async (baseUrl: string) => {
+    setIsLoadingVllmModels(true);
+    const models = await fetchVLLMModels(baseUrl);
+    setVllmModels(models);
+    setIsLoadingVllmModels(false);
   }, []);
 
   useEffect(() => {
@@ -342,6 +354,7 @@ export const SettingsPanel = ({
     'minimax',
     'glm',
     'deepseek',
+    'vllm',
   ];
 
   return (
@@ -436,7 +449,9 @@ export const SettingsPanel = ({
                                   ? '🔮'
                                   : provider === 'deepseek'
                                     ? '🐋'
-                                    : '☁️'}
+                                    : provider === 'vllm'
+                                      ? '⭐'
+                                      : '☁️'}
                   </div>
                   <span className="font-medium">{getProviderDisplayName(provider)}</span>
                 </button>
@@ -981,6 +996,100 @@ export const SettingsPanel = ({
                   className="w-full rounded-xl border border-border-subtle bg-elevated px-4 py-3 font-mono text-sm text-text-primary transition-all outline-none placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
                 />
                 <p className="text-xs text-text-muted">{t('settings:glmCodingApi')}</p>
+              </div>
+            </div>
+          )}
+
+          {/* vLLM Settings */}
+          {settings.activeProvider === 'vllm' && (
+            <div className="animate-fade-in space-y-4">
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
+                  <Server className="h-4 w-4" />
+                  {t('settings:baseUrl')}
+                </label>
+                <input
+                  type="url"
+                  value={settings.vllm?.baseUrl ?? 'http://localhost:8000/v1'}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      vllm: { ...prev.vllm!, baseUrl: e.target.value },
+                    }))
+                  }
+                  placeholder="http://localhost:8000/v1"
+                  className="w-full rounded-xl border border-border-subtle bg-elevated px-4 py-3 font-mono text-sm text-text-primary transition-all outline-none placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
+                />
+                <p className="text-xs text-text-muted">
+                  {t('settings:providers.vllm.baseUrlHint')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text-secondary">
+                  {t('settings:model')}
+                </label>
+                <OpenRouterModelCombobox
+                  value={settings.vllm?.model ?? ''}
+                  onChange={(model) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      vllm: { ...prev.vllm!, model },
+                    }))
+                  }
+                  models={vllmModels}
+                  isLoading={isLoadingVllmModels}
+                  onLoadModels={() =>
+                    loadVllmModels(settings.vllm?.baseUrl ?? 'http://localhost:8000/v1')
+                  }
+                />
+                <p className="text-xs text-text-muted">
+                  {t('settings:browseModels')}{' '}
+                  <a
+                    href="https://docs.vllm.ai/en/latest/models/tool_use.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent hover:underline"
+                  >
+                    {t('settings:vllmDocs')}
+                  </a>
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
+                  <Key className="h-4 w-4" />
+                  {t('settings:apiKey')}{' '}
+                  <span className="font-normal text-text-muted">({t('settings:optional')})</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showApiKey['vllm'] ? 'text' : 'password'}
+                    value={settings.vllm?.apiKey ?? ''}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        vllm: { ...prev.vllm!, apiKey: e.target.value },
+                      }))
+                    }
+                    placeholder={t('settings:providers.vllm.apiKeyPlaceholder')}
+                    className="w-full rounded-xl border border-border-subtle bg-elevated px-4 py-3 pr-12 text-text-primary transition-all outline-none placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => toggleApiKeyVisibility('vllm')}
+                    className="absolute top-1/2 right-3 -translate-y-1/2 p-1 text-text-muted transition-colors hover:text-text-primary"
+                  >
+                    {showApiKey['vllm'] ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-xs text-text-muted">
+                  {t('settings:providers.vllm.authNote')}
+                </p>
               </div>
             </div>
           )}

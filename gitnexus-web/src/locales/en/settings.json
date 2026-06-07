@@ -70,6 +70,11 @@
     },
     "glm": {
       "apiKeyPlaceholder": "Enter your Z.AI API key"
+    },
+    "vllm": {
+      "baseUrlHint": "Default is http://localhost:8000/v1. Includes /v1 chat/completions path.",
+      "apiKeyPlaceholder": "Leave empty if running without auth",
+      "authNote": "vLLM can run without authentication for local development."
     }
   },
   "loadingModels": "Loading models...",

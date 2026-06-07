@@ -18,6 +18,8 @@ export {
   clearSettings,
   getProviderDisplayName,
   getAvailableModels,
+  fetchOpenRouterModels,
+  fetchVLLMModels,
 } from './settings-service';
 
 // Tools
