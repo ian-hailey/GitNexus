@@ -35,6 +35,7 @@ import {
   mroPhase,
   communitiesPhase,
   processesPhase,
+  PhaseRegistry,
   type ScopeResolutionOutput,
   type PipelinePhase,
   type CommunitiesOutput,
@@ -49,6 +50,54 @@ export interface PipelineOptions {
    * to retain those nodes under `skipGraphPhases`.
    */
   skipGraphPhases?: boolean;
+  /**
+   * Build the control-flow-graph / PDG substrate (#2081 M1, opt-in via `--pdg`).
+   * Off by default: workers skip all CFG work and emit no `cfgSideChannel`, and
+   * scope-resolution emits no BasicBlock nodes or CFG edges — so the default
+   * graph is byte-identical to a pre-#2081 run. Folded into the parse-cache key
+   * so a pdg-off warm cache is not reused on a `--pdg` run.
+   */
+  pdg?: boolean;
+  /**
+   * Per-function source-line cap for worker-side CFG construction.
+   * `undefined` ⇒ the worker applies `DEFAULT_PDG_MAX_FUNCTION_LINES`; `0` ⇒ no
+   * cap (unlimited). Bounds the cost of a pathological mega-function; over-cap
+   * functions are skipped (no CFG emitted for them). No CLI flag in M1 —
+   * programmatic / server analyze-worker path only.
+   */
+  pdgMaxFunctionLines?: number;
+  /**
+   * Per-function CFG edge cap for the scope-resolution emit step.
+   * `undefined` ⇒ `DEFAULT_MAX_CFG_EDGES_PER_FUNCTION`; `0` ⇒ no cap (unlimited).
+   * Over-cap functions stop at the cap and log a structured drop warning (no
+   * silent truncation). No CLI flag in M1 — programmatic / server path only.
+   */
+  pdgMaxEdgesPerFunction?: number;
+  /**
+   * Per-function REACHING_DEF edge cap for the scope-resolution emit step
+   * (#2082 M2). `undefined` ⇒ `DEFAULT_PDG_MAX_REACHING_DEF_EDGES_PER_FUNCTION`
+   * (4000); `0` ⇒ no cap (unlimited). Emit-time-only — NOT folded into the
+   * parse-cache chunk key (the worker never sees it); recorded in
+   * `RepoMeta.pdg` so a cap change forces a full writeback. No CLI flag —
+   * programmatic / server path only, like the M1 caps.
+   */
+  pdgMaxReachingDefEdgesPerFunction?: number;
+  /**
+   * Per-function taint findings cap for the scope-resolution taint pass
+   * (#2083 M3). `undefined` ⇒ `DEFAULT_PDG_MAX_TAINT_FINDINGS_PER_FUNCTION`
+   * (200); `0` ⇒ no cap (unlimited). Emit-time-only — NOT folded into the
+   * parse-cache chunk key; recorded resolved in `RepoMeta.pdg` so a cap
+   * change forces a full writeback. No CLI flag or rc key (KTD8) —
+   * programmatic / server path only, like the other pdg caps.
+   */
+  pdgMaxTaintFindingsPerFunction?: number;
+  /**
+   * Per-finding taint hop cap (#2083 M3, KTD6 — bounds the persisted
+   * hop-encoded `reason`). `undefined` ⇒ `DEFAULT_PDG_MAX_TAINT_HOPS` (32);
+   * `0` ⇒ no cap (unlimited). Same emit-time-only / RepoMeta-stamped /
+   * no-CLI-flag discipline as `pdgMaxTaintFindingsPerFunction`.
+   */
+  pdgMaxTaintHops?: number;
   /**
    * Request parsing with the worker pool disabled. The sequential parser was
    * removed — the worker pool is the sole parse path — so setting this now
@@ -128,6 +177,15 @@ export interface PipelineOptions {
    * `process.env` state across invocations. When undefined, the env var decides.
    */
   keepLocalValueSymbols?: boolean;
+  /**
+   * Extra fetch-wrapper function names to treat as HTTP consumers, threaded
+   * from `.gitnexusrc` `fetchWrappers` via `AnalyzeOptions` (#1589/#1852
+   * residual). The routes phase unions these with the auto-detected `fetch()`
+   * wrappers when scanning for `route_map` consumers, so a wrapper named outside
+   * the built-in convention (or built on axios / a custom client) is still
+   * traced. Empty/undefined leaves behavior unchanged.
+   */
+  fetchWrappers?: readonly string[];
 }
 
 // ── Phase registry ─────────────────────────────────────────────────────────
@@ -142,28 +200,36 @@ export interface PipelineOptions {
  *     → mro → communities → processes
  *
  * To add a new phase: create a file in pipeline-phases/, export the phase
- * object, and add it to the appropriate position in this array.
+ * object, and `.register()` it at the appropriate position below. Opt-in
+ * phases pass an `enabledWhen` predicate (issue #2080 phase-registry seam) —
+ * the legacy `if (!skipGraphPhases)` guard is now expressed that way on the
+ * three graph phases, with no change in behaviour.
+ *
+ * Exported for the parity test (`pipeline-phase-registry.test.ts`), which
+ * asserts the produced list is byte-identical to the legacy array for every
+ * options combination.
  */
-function buildPhaseList(options?: PipelineOptions): PipelinePhase[] {
-  const phases: PipelinePhase[] = [
-    scanPhase,
-    structurePhase,
-    markdownPhase,
-    cobolPhase,
-    parsePhase,
-    routesPhase,
-    toolsPhase,
-    ormPhase,
-    crossFilePhase,
-    scopeResolutionPhase,
-    pruneLocalSymbolsPhase,
-  ];
-
-  if (!options?.skipGraphPhases) {
-    phases.push(mroPhase, communitiesPhase, processesPhase);
-  }
-
-  return phases;
+export function buildPhaseList(options?: PipelineOptions): PipelinePhase[] {
+  return (
+    new PhaseRegistry<PipelineOptions>()
+      .register(scanPhase)
+      .register(structurePhase)
+      .register(markdownPhase)
+      .register(cobolPhase)
+      .register(parsePhase)
+      .register(routesPhase)
+      .register(toolsPhase)
+      .register(ormPhase)
+      .register(crossFilePhase)
+      .register(scopeResolutionPhase)
+      .register(pruneLocalSymbolsPhase)
+      .register(mroPhase, { enabledWhen: (o) => !o.skipGraphPhases })
+      .register(communitiesPhase, { enabledWhen: (o) => !o.skipGraphPhases })
+      .register(processesPhase, { enabledWhen: (o) => !o.skipGraphPhases })
+      // Normalize a missing options object once here so phase predicates above
+      // take a required PipelineOptions and need no `?.` guard (#2080 review S1).
+      .build(options ?? {})
+  );
 }
 
 // ── Pipeline orchestrator ─────────────────────────────────────────────────

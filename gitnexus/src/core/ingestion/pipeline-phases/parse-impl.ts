@@ -36,6 +36,7 @@ import {
   restoreDurableParsedFileShard,
 } from '../../../storage/parsedfile-store.js';
 import type { ParseWorkerResult } from '../workers/parse-worker.js';
+import { DEFAULT_PDG_MAX_FUNCTION_LINES } from '../cfg/collect.js';
 import type { WorkerExtractedData } from '../parsing-processor.js';
 import {
   processRoutesFromExtracted,
@@ -43,9 +44,13 @@ import {
   type ExportedTypeMap,
 } from '../call-processor.js';
 import { createSemanticModel, type MutableSemanticModel } from '../model/index.js';
-import { type PipelineProgress, getLanguageFromFilename } from 'gitnexus-shared';
+import {
+  type PipelineProgress,
+  getLanguageFromFilename,
+  SupportedLanguages,
+} from 'gitnexus-shared';
 import { readFileContents } from '../filesystem-walker.js';
-import { isLanguageAvailable } from '../../tree-sitter/parser-loader.js';
+import { isLanguageAvailable, isGrammarRuntimeSkipped } from '../../tree-sitter/parser-loader.js';
 import {
   createWorkerPool,
   workerPoolDisabledByEnv,
@@ -274,9 +279,18 @@ export async function runChunkedParseAndResolve(
     }
   }
   for (const [lang, count] of skippedByLang) {
-    logger.warn(
-      `Skipping ${count} ${lang} file(s) — ${lang} parser not available (native binding may not have built). Try: npm rebuild tree-sitter-${lang}`,
-    );
+    // Distinguish a deliberate runtime opt-out from a genuinely-missing binding
+    // so we don't tell a user who set GITNEXUS_SKIP_OPTIONAL_GRAMMARS to
+    // `npm rebuild` a grammar that built fine (#2091/#2093 review).
+    if (isGrammarRuntimeSkipped(lang as SupportedLanguages)) {
+      logger.warn(
+        `Skipping ${count} ${lang} file(s) — ${lang} parsing disabled via GITNEXUS_SKIP_OPTIONAL_GRAMMARS.`,
+      );
+    } else {
+      logger.warn(
+        `Skipping ${count} ${lang} file(s) — ${lang} parser not available (native binding may not have built). Try: npm rebuild tree-sitter-${lang}`,
+      );
+    }
   }
 
   // Sort parseableScanned alphabetically for stable chunk membership
@@ -448,6 +462,10 @@ export async function runChunkedParseAndResolve(
         // Initialized below before the chunk loop (same deferred-init pattern
         // as `parsedFileStorePath`); this closure only runs from the loop.
         durableParsedFileStoragePath: durableParsedFileDir,
+        // CFG/PDG opt-in (#2081 M1) — baked into each worker's workerData so the
+        // worker builds + attaches cfgSideChannel. Off by default.
+        pdg: options?.pdg === true,
+        pdgMaxFunctionLines: options?.pdgMaxFunctionLines,
         // Fan each chunk across the whole pool (#worker-idle): without this a
         // chunk smaller than the 8 MB sub-batch cap became a single job on a
         // single worker. Honors an explicit `subBatchMaxBytes` / env override.
@@ -724,7 +742,21 @@ export async function runChunkedParseAndResolve(
           filePath: f.path,
           contentHash: fileContentHash(f.content),
         }));
-        chunkHash = computeChunkHash(entries);
+        chunkHash = computeChunkHash(
+          entries,
+          // Only worker-visible pdg config participates in the key —
+          // pdgMaxEdgesPerFunction is emit-time-only and deliberately
+          // excluded (see PdgCacheKey in parse-cache.ts; #2099 F3). The line
+          // cap is RESOLVED to the worker's default before folding so an
+          // explicit-default run shares the default run's keys (the worker
+          // output is byte-identical either way).
+          options?.pdg === true
+            ? {
+                pdg: true,
+                maxFunctionLines: options?.pdgMaxFunctionLines ?? DEFAULT_PDG_MAX_FUNCTION_LINES,
+              }
+            : false,
+        );
       }
 
       const cachedRaw =

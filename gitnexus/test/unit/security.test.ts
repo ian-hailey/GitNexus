@@ -17,7 +17,7 @@ import {
 
 describe('VALID_RELATION_TYPES', () => {
   it('contains all expected relation types', () => {
-    expect(VALID_RELATION_TYPES.size).toBe(15);
+    expect(VALID_RELATION_TYPES.size).toBe(16);
     for (const t of [
       'CALLS',
       'IMPORTS',
@@ -29,6 +29,9 @@ describe('VALID_RELATION_TYPES', () => {
       'OVERRIDES',
       'METHOD_IMPLEMENTS',
       'ACCESSES',
+      // USES is an emitted edge type (emit-references.ts) used in the default
+      // impact relTypes + context queries; added to the allowlist in F5.
+      'USES',
       'HANDLES_ROUTE',
       'FETCHES',
       'HANDLES_TOOL',
@@ -41,9 +44,17 @@ describe('VALID_RELATION_TYPES', () => {
 
   it('rejects invalid relation types', () => {
     expect(VALID_RELATION_TYPES.has('CONTAINS')).toBe(false);
-    expect(VALID_RELATION_TYPES.has('USES')).toBe(false);
     expect(VALID_RELATION_TYPES.has('calls')).toBe(false); // case-sensitive
     expect(VALID_RELATION_TYPES.has('DROP_TABLE')).toBe(false);
+  });
+
+  it('taint edge types stay OUT of the impact allow-list (#2083 M3 KTD9a)', () => {
+    // impact's BFS traverses symbol space; TAINTED/SANITIZES live in
+    // block-space (BasicBlock→BasicBlock) and would be unreachable noise
+    // there. The `explain` tool is the dedicated taint consumer. Pinned
+    // explicitly so a future "add all emitted types" sweep can't drag them in.
+    expect(VALID_RELATION_TYPES.has('TAINTED')).toBe(false);
+    expect(VALID_RELATION_TYPES.has('SANITIZES')).toBe(false);
   });
 });
 
